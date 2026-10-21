@@ -1,3 +1,39 @@
+
+## Prompt (2026-10-16 14:54)
+
+log slider would be great in superqt, and I think in general people agreed with this plan!   what does he mean superqt?   that something different then our slider?
+
+### Answer
+
+**superqt** is a separate library of extra Qt widgets that napari uses: github.com/pyapp-kit/superqt. Plain Qt only has basic sliders, and superqt adds the nicer ones napari relies on, like `QLabeledDoubleSlider` (the slider with a number box, used for attenuation and empty space) and the two-handle range slider used for contrast limits.
+
+So "a log slider would be great in superqt" means: **instead of napari keeping its own custom log slider, superqt should offer one as a ready-made widget**, like `QLabeledDoubleSlider` but logarithmic. Then napari, and any other project, could just use it.
+
+Compared with what you have:
+- **Tim's slider** is a custom subclass living inside napari's `qt_render_control.py`. It bends superqt's slider into a log one by overriding superqt's **private** methods. That works, but it's fragile, and it's why Tim called it awkward. In his PR he already wrote "we can then consider upstreaming this to superqt".
+- **A superqt log slider** would be the same idea built properly inside superqt, where it can handle the details cleanly (the label, typing values, keyboard steps, and what happens at 0).
+
+So it isn't a different kind of slider, just a better home for it. It could be a nice separate contribution: add a log slider to superqt, then switch napari to use it in a later PR.
+
+---
+
+## Prompt (2026-10-16 14:55)
+
+so superqt a different project so a third part?
+
+### Answer
+
+Yes, superqt is a separate project with its own repo (github.com/pyapp-kit/superqt), its own releases and its own maintainers. It's in the pyapp-kit organisation, which overlaps a lot with napari people. napari installs it as a dependency.
+
+So a superqt log slider would be a **third piece**, with the same pattern as vispy:
+1. a PR to superqt adding the log slider
+2. a superqt release
+3. a napari PR switching Tim's custom slider to the superqt one
+
+It isn't needed for your current two PRs. Tim's slider works as it is, so this can be a later, separate step.
+
+---
+
 ## Prompt (2026-10-17 07:19)
 
 ok back to our issue with amip, now they all want the new control to be in superqt I think.  we fork and I think maybe even start branch (if not do)  and now let's implement a slider which map to function use case log, and use case better non-linear for like attenuation amip... minimal comments, we work together on comments.   and work carefully on commits so understand good.
