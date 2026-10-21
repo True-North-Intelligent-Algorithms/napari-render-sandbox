@@ -1,0 +1,6 @@
+# Examples download their data when it is missing; the atlas image has no
+# stated license, so none of data/ goes into git.
+data/
+__pycache__/
+.ruff_cache/
+.vscode/

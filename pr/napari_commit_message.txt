@@ -1,0 +1,12 @@
+Add empty_space_attenuation parameter and controls
+
+In this commit we add empty_space_attenuation events and sliders. This is
+used to give a constant attenuation in empty and low intensity regions for
+attenuated MIP rendering. We follow the pattern of the attenuation
+parameter.
+
+- Add empty_space_attenuation event in scalar_field (scalar_field is the
+  base class of the image layer).
+- Add empty_space_attenuation to the image layer model.
+- Link empty_space_attenuation to vispy.
+- Add empty_space_attenuation slider to render controls.
