@@ -1,5 +1,5 @@
 # /// script
-# requires-python = ">=3.10"
+# requires-python = ">=3.12"
 # dependencies = ["numpy", "tifffile", "vispy", "PyQt6", "PyOpenGL"]
 #
 # [tool.uv.sources]
@@ -11,6 +11,11 @@ Renders a light-sheet volume (the mouse embryo brain used in napari#8241)
 with vispy's Volume visual, method = attenuated_mip, set up the way napari
 sets it up. Sliders: attenuation, contrast limits, gamma, and the new
 base attenuation.
+
+A dropdown switches the shader: "proposed" is the branch's attenuated MIP as
+it would ship; "current" is the same shader with the change undone (the -1
+back, no base attenuation), as released vispy has it. Same data, same view;
+only the formula changes.
 
     uv run amip_vispy_demo.py
 
@@ -26,6 +31,8 @@ otherwise the reference image is downloaded once (111 MB archive) to
 ~/.cache/vispy-amip-demo.
 """
 
+import importlib.metadata
+import json
 import tarfile
 import urllib.request
 from pathlib import Path
@@ -36,6 +43,7 @@ import vispy
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QApplication,
+    QComboBox,
     QHBoxLayout,
     QLabel,
     QSlider,
@@ -46,6 +54,20 @@ from vispy import scene
 
 vispy.use("pyqt6")
 version = getattr(vispy, "__version__", "(local checkout, not installed)")
+
+
+def vispy_commit():
+    """The commit uv installed vispy from, or None for a release or a checkout."""
+    try:
+        text = importlib.metadata.distribution("vispy").read_text("direct_url.json")
+    except importlib.metadata.PackageNotFoundError:
+        return None
+    return json.loads(text or "{}").get("vcs_info", {}).get("commit_id")
+
+
+commit = vispy_commit()
+if commit:
+    version = f"{version}, {commit[:8]}"
 print(f"vispy {version} from {Path(vispy.__file__).parent}")
 
 # ---------------------------------------------------------------------------
@@ -115,6 +137,40 @@ view.camera.set_range()
 # Released vispy doesn't have the new property.
 HAS_BASE_ATTENUATION = hasattr(vol, "base_attenuation")
 
+# The shaders to choose from: (dropdown label, vispy method name).
+SHADERS = [(f"proposed (vispy {version})", "attenuated_mip")]
+# The loop of the current (released, vispy 0.17.0) attenuated MIP shader,
+# copied word for word. The branch changes only this part: no "- 1" in the
+# scale, and u_base_attenuation added to sumval.
+CURRENT_IN_LOOP = """
+        // Scale and clamp accumulation in `sumval` by contrast limits so that:
+        // * attenuation value does not depend on data values
+        // * negative values do not amplify instead of attenuate
+        sumval = sumval + u_relative_step_size * clamp((val - clim.x) / (clim.y - clim.x), 0.0, 1.0);
+        scale = exp(-u_attenuation * (sumval - 1));
+        if( maxval > scale * clim.y ) {
+            // stop if no chance of finding a higher maxval
+            iter = nsteps;
+        } else if( val * scale > maxval ) {
+            maxval = val * scale;
+            maxcolor = color * scale;
+            maxi = iter;
+            max_loc_tex = loc;
+        }
+        """
+
+if HAS_BASE_ATTENUATION:
+    # Add the current shader as one more method on this volume: the branch's
+    # attenuated MIP, with the current loop in place of the new one.
+    proposed = vol._rendering_methods["attenuated_mip"]
+    vol._rendering_methods = {
+        **vol._rendering_methods,
+        "attenuated_mip_current": {**proposed, "in_loop": CURRENT_IN_LOOP},
+    }
+    SHADERS.append(("current (the -1, no base attenuation)", "attenuated_mip_current"))
+else:
+    SHADERS = [(f"current (vispy {version})", "attenuated_mip")]
+
 
 def update_mip_cutoff():
     # napari does this for its default (translucent) blending: ignore
@@ -135,6 +191,17 @@ class Window(QWidget):
         self.setWindowTitle("vispy attenuated MIP demo")
         layout = QVBoxLayout(self)
         layout.addWidget(canvas.native)
+
+        self.shader_box = QComboBox()
+        for label, _ in SHADERS:
+            self.shader_box.addItem(label)
+        self.shader_box.currentIndexChanged.connect(self.on_change)
+        row = QHBoxLayout()
+        name_label = QLabel("shader:")
+        name_label.setMinimumWidth(100)
+        row.addWidget(name_label)
+        row.addWidget(self.shader_box)
+        layout.addLayout(row)
 
         # QSlider only does whole numbers, so each slider counts in small
         # units and the value is divided down.
@@ -182,7 +249,11 @@ class Window(QWidget):
         return slider, value_label
 
     def on_change(self):
-        """Any slider moved: set the vispy properties (vispy redraws)."""
+        """Any control changed: set the vispy properties (vispy redraws)."""
+        vol.method = SHADERS[self.shader_box.currentIndex()][1]
+        if HAS_BASE_ATTENUATION:
+            # the current shader ignores base attenuation
+            self.base_slider.setEnabled(vol.method == "attenuated_mip")
         vol.attenuation = self.attenuation_slider.value() / 1000
         vol.clim = (self.clim_low_slider.value(), self.clim_high_slider.value())
         update_mip_cutoff()
